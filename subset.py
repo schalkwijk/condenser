@@ -139,7 +139,14 @@ class Subset:
             clauses = ['{} IN (SELECT {} FROM {})'.format(columns_tupled(kc['fk_columns']), columns_joined(kc['target_columns']), fully_qualified_table(mysql_db_name_hack(kc['target_table'], self.__destination_conn))) for kc in relevant_key_constraints]
             clauses.extend(upstream_filter_match(target, table_columns))
 
-            select_query = 'SELECT * FROM {} WHERE TRUE AND {}'.format(quoter(temp_target_name), ' AND '.join(clauses))
+            relationship  = next(x for x in relationships if x['fk_table'] == target)
+            if 'join_clause' in relationship:
+                target_table = fully_qualified_table(mysql_db_name_hack(relationship['target_table'], self.__destination_conn))
+                join = relationship['join_clause'].format(quoter(temp_target_name), target_table)
+                select_query = 'SELECT {}.* FROM {} INNER JOIN {} ON {}'.format(quoter(temp_target_name), quoter(temp_target_name), target_table, join)
+            else:
+                select_query = 'SELECT * FROM {} WHERE TRUE AND {}'.format(quoter(temp_target_name), ' AND '.join(clauses))
+
             insert_query = 'INSERT INTO {} {}'.format(fully_qualified_table(mysql_db_name_hack(target, self.__destination_conn)), select_query)
             self.__db_helper.run_query(insert_query, self.__destination_conn)
             self.__destination_conn.commit()
@@ -172,6 +179,7 @@ class Subset:
         for r in referencing_tables:
             fk_table = r['fk_table']
             fk_columns = r['fk_columns']
+            pk_columns = r['target_columns']
 
             q='SELECT {} FROM {} WHERE {} NOT IN (SELECT {} FROM {})'.format(columns_joined(fk_columns), fully_qualified_table(mysql_db_name_hack(fk_table, self.__destination_conn)), columns_tupled(fk_columns), columns_joined(pk_columns), fully_qualified_table(mysql_db_name_hack(table, self.__destination_conn)))
             self.__db_helper.copy_rows(self.__destination_conn, self.__destination_conn, q, temp_table)
